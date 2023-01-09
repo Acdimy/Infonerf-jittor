@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 
 from dataset.load_blender import load_blender_data
 
-import cv2
+# import cv2
 import random
-import wandb
-import torchvision
+# import wandb
+# import torchvision
 
 from utils import *
 from network import *
@@ -156,7 +156,7 @@ def render_path(render_poses, hwf, chunk, render_kwargs, gt_imgs=None, savedir=N
     psnrs = []
     accs = []
     # t = time.time()
-    for i, c2w in enumerate(tqdm(render_poses)):
+    for i, c2w in enumerate(tqdm.tqdm(render_poses)):
         # print(i, time.time() - t)
         # t = time.time()
         rgb, disp, acc, depth, extras = render(H, W, focal, chunk=chunk, c2w=c2w[:3,:4], retraw=True, **render_kwargs)
@@ -440,11 +440,11 @@ def render_rays(ray_batch,
         ret['rgb0'] = rgb_map_0
         ret['disp0'] = disp_map_0
         ret['acc0'] = acc_map_0
-        ret['z_std'] = jt.std(z_samples, dim=-1, unbiased=False)  # [N_rays]
+        # ret['z_std'] = jt.std(z_samples, dim=-1, unbiased=False)  # [N_rays]
 
-    if sigma_loss is not None and ray_batch.shape[-1] > 11:
-        depths = ray_batch[:,8]
-        ret['sigma_loss'] = sigma_loss.calculate_loss(rays_o, rays_d, viewdirs, near, far, depths, network_query_fn, network_fine)
+    # if sigma_loss is not None and ray_batch.shape[-1] > 11:
+    #     depths = ray_batch[:,8]
+    #     ret['sigma_loss'] = sigma_loss.calculate_loss(rays_o, rays_d, viewdirs, near, far, depths, network_query_fn, network_fine)
 
     # for k in ret:
     #     if (torch.isnan(ret[k]).any() or torch.isinf(ret[k]).any()) and DEBUG:
@@ -906,38 +906,38 @@ def train():
             }, path)
             print('Saved checkpoints at', path)
 
-        # if (args.i_video > 0 and i%args.i_video==0 and i > 0):
-        #     # Turn on testing mode
-        #     if render_first_time==False:
-        #         render_first_time=True
-        #         continue                
-        #     with torch.no_grad():
-        #         rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
-        #     print('Done, saving', rgbs.shape, disps.shape)
-        #     moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname.split('/')[-1], i))
-        #     imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
-        #     imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.nanmax(disps)), fps=30, quality=8)
-
-        if (i%args.i_testset==0 ) and (i > 0) and (len(i_test) > 0):
-            testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
-            os.makedirs(testsavedir, exist_ok=True)
-            print('test poses shape', poses[i_test].shape)
+        if (args.i_video > 0 and i%args.i_video==0 and i > 0):
+            # Turn on testing mode
+            # if render_first_time==False:
+            #     render_first_time=True
+            #     continue                
             with jt.no_grad():
-                rgbs, disps = render_path(jt.float32(poses[i_test]), hwf, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
-            print('Saved test set')
+                rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
+            print('Done, saving', rgbs.shape, disps.shape)
+            moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname.split('/')[-1], i))
+            imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.nanmax(disps)), fps=30, quality=8)
 
-            filenames = [os.path.join(testsavedir, '{:03d}.png'.format(k)) for k in range(len(i_test))]
+        # if (i%args.i_testset==0 ) and (i > 0) and (len(i_test) > 0):
+        #     testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
+        #     os.makedirs(testsavedir, exist_ok=True)
+        #     print('test poses shape', poses[i_test].shape)
+        #     with jt.no_grad():
+        #         rgbs, disps = render_path(jt.float32(poses[i_test]), hwf, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
+        #     print('Saved test set')
 
-            test_loss = img2mse(jt.float32(rgbs), images[i_test])
-            test_psnr = mse2psnr(test_loss)
+        #     filenames = [os.path.join(testsavedir, '{:03d}.png'.format(k)) for k in range(len(i_test))]
+
+        #     test_loss = img2mse(jt.float32(rgbs), images[i_test])
+        #     test_psnr = mse2psnr(test_loss)
             
-            test_redefine_psnr = img2psnr_redefine(jt.float32(rgbs), images[i_test])
+        #     test_redefine_psnr = img2psnr_redefine(jt.float32(rgbs), images[i_test])
            
-            # test_ssim, test_msssim = img2ssim(jt.float32(rgbs), images[i_test])
-            tqdm.write(f"[TEST] Iter: {i} Loss: {test_loss.item()}  PSNR: {test_psnr.item()} redefine_PSNR: {test_redefine_psnr.item()}")
+        #     # test_ssim, test_msssim = img2ssim(jt.float32(rgbs), images[i_test])
+        #     print(f"[TEST] Iter: {i} Loss: {test_loss.item()}  PSNR: {test_psnr.item()} redefine_PSNR: {test_redefine_psnr.item()}")
 
         if i%args.i_print==0:
-            tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
+            print(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
         global_step += 1
 
 
