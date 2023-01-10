@@ -79,8 +79,8 @@ class NeRF(Module):
             self.feature_linear = nn.Linear(W, W)
             self.alpha_linear = nn.Linear(W, 1)
             self.rgb_linear = nn.Linear(W//2, 3)
-        # else:
-        #     self.output_linear = nn.Linear(W, output_ch)
+        else:
+            self.output_linear = nn.Linear(W, output_ch)
 
     def execute(self, x):
         input_pts, input_views = jt.split(x, [self.input_ch, self.input_ch_views], dim=-1)

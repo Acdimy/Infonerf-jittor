@@ -39,3 +39,24 @@ class EntropyLoss:
             return -1*prob*jt.log2(prob+1e-10)
         elif self.type_ == '1-p':
             return prob*jt.log2(1-prob)
+
+# class SmoothingLoss:
+#     def __init__(self, args):
+#         super(SmoothingLoss, self).__init__()
+    
+#         self.smoothing_activation = args.smoothing_activation
+#         self.criterion = jt.nn.KLDivLoss(reduction='batchmean')
+    
+#     def __call__(self, sigma):
+#         half_num = sigma.size(0)//2
+#         sigma_1= sigma[:half_num]
+#         sigma_2 = sigma[half_num:]
+
+#         if self.smoothing_activation == 'softmax':
+#             p = jt.nn.softmax(sigma_1, -1)
+#             q = jt.nn.softmax(sigma_2, -1)
+#         elif self.smoothing_activation == 'norm':
+#             p = sigma_1 / (jt.sum(sigma_1, -1,  keepdim=True) + 1e-10) + 1e-10
+#             q = sigma_2 / (jt.sum(sigma_2, -1, keepdim=True) + 1e-10) +1e-10
+#         loss = self.criterion(p.log(), q)
+#         return loss

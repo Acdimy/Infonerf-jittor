@@ -14,7 +14,6 @@ from dataset.load_blender import load_blender_data
 # import cv2
 import random
 # import wandb
-# import torchvision
 
 from utils import *
 from network import *
@@ -24,7 +23,6 @@ from loss import *
 if jt.has_cuda:
     jt.flags.use_cuda = 1
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 jt.set_global_seed(0)
 random.seed(0)
@@ -186,7 +184,6 @@ def render_path(render_poses, hwf, chunk, render_kwargs, gt_imgs=None, savedir=N
         del acc
         del extras
         del depth
-        # torch.cuda.empty_cache()
 
     rgbs = np.stack(rgbs, 0)
     disps = np.stack(disps, 0)
@@ -711,15 +708,6 @@ def train():
     basedir = args.basedir
     expname = args.expname
     os.makedirs(os.path.join(basedir, expname), exist_ok=True)
-    # f = os.path.join(basedir, expname, 'args.txt')
-    # with open(f, 'w') as file:
-    #     for arg in sorted(vars(args)):
-    #         attr = getattr(args, arg)
-    #         file.write('{} = {}\n'.format(arg, attr))
-    # if args.config is not None:
-    #     f = os.path.join(basedir, expname, 'config.txt')
-    #     with open(f, 'w') as file:
-    #         file.write(open(args.config, 'r').read())
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args)
@@ -744,6 +732,10 @@ def train():
         N_entropy = args.N_entropy
         fun_entropy_loss = EntropyLoss(args)
 
+    # if args.smoothing:
+    #     get_near_c2w = GetNearC2W(args)
+    #     fun_KL_divergence_loss = SmoothingLoss(args)
+
     # Move training data to GPU
     images = jt.float32(images)
     poses = jt.float32(poses)
@@ -755,12 +747,7 @@ def train():
     print('TEST views are', i_test)
     print('VAL views are', i_val)
 
-    # # Summary writers
-    # #writer = SummaryWriter(os.path.join(basedir, 'summaries', expname))
-    # tags = []
-    # if (not args.debug) and args.wandb:
-    #     wandb.init(project='entropy_nerf', group=args.wandb_group,config=args, name=args.expname, tags=tags)
-   
+
     start = start + 1
 
 
@@ -798,6 +785,13 @@ def train():
             batch_rays = jt.stack([rays_o, rays_d], 0) # (2, N_rand, 3)
             target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
             
+            # if args.smoothing:
+            #     rgb_near_pose = get_near_c2w(rgb_pose, iter_=i)
+            #     near_rays_o, near_rays_d = get_rays(H, W, focal, jt.float32(rgb_near_pose))  # (H, W, 3), (H, W, 3)
+            #     near_rays_o = near_rays_o[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
+            #     near_rays_d = near_rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
+            #     near_batch_rays = jt.stack([near_rays_o, near_rays_d], 0) # (2, N_rand, 3)
+
         ########################################################
         #            Sampling for unseen rays                  #
         ########################################################
@@ -828,11 +822,28 @@ def train():
             rays_d_ent = rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
             batch_rays_entropy = jt.stack([rays_o_ent, rays_d_ent], 0) # (2, N_rand, 3)
             
+            ########################################################
+            #   Ray sampling for information gain reduction loss   #
+            ########################################################
+
+            # if args.smoothing: # near_pose default
+            #     ent_near_pose = get_near_c2w(pose,iter_=i)
+            #     ent_near_rays_o, ent_near_rays_d = get_rays(H, W, focal, jt.float32(ent_near_pose))  # (H, W, 3), (H, W, 3)
+            #     ent_near_rays_o = ent_near_rays_o[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
+            #     ent_near_rays_d = ent_near_rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
+            #     ent_near_batch_rays = jt.stack([ent_near_rays_o, ent_near_rays_d], 0) # (2, N_rand, 3)
+
 
         N_rgb = batch_rays.shape[1]
 
         if args.entropy and (args.N_entropy !=0):
             batch_rays = jt.concat([batch_rays, batch_rays_entropy], 1)
+
+        # if args.smoothing:
+        #     if args.entropy and (args.N_entropy !=0):
+        #         batch_rays = jt.concat([batch_rays, near_batch_rays, ent_near_batch_rays], 1)
+        #     else: 
+        #         batch_rays = jt.concat([batch_rays, near_batch_rays], 1)
 
         rgb, disp, acc, depth, extras = render(H, W, focal, chunk=args.chunk, rays=batch_rays,
                                                 verbose=i < 10, retraw=True,
@@ -868,21 +879,29 @@ def train():
                 entropy_ray_zvals_loss = 0
         
 
+        ########################################################
+        #           Infomation Gain Reduction Loss             #
+        ########################################################
+        
+        # smoothing_lambda = args.smoothing_lambda * args.smoothing_rate ** (int(i/args.smoothing_step_size))
+        
+        # if args.smoothing:
+        #     smoothing_loss = fun_KL_divergence_loss(alpha_raw)
+        #     logging_info['KL_loss'] = smoothing_loss
+        #     if args.smoothing_end_iter is not None:
+        #         if i > args.smoothing_end_iter:
+        #             smoothing_loss = 0
+
         trans = extras['raw'][...,-1]
         loss = img_loss \
-                + args.entropy_ray_zvals_lambda * entropy_ray_zvals_loss
+                + args.entropy_ray_zvals_lambda * entropy_ray_zvals_loss # + smoothing_lambda * smoothing_loss
         psnr = mse2psnr(img_loss)
         logging_info['psnr'] = psnr
 
         if 'rgb0' in extras and not args.no_coarse:
             img_loss0 = img2mse(extras['rgb0'], target_s)
             loss = loss + img_loss0
-            # psnr0 = mse2psnr(img_loss0)
-            # logging_info['rgb0_loss'] = img_loss0
-            # logging_info['psnr0'] = psnr0
-            
-        # loss.backward()
-        # optimizer.step()
+
         optimizer.step(loss) # jittor
 
         # NOTE: IMPORTANT!
